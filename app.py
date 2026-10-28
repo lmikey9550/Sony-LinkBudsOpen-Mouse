@@ -94,6 +94,7 @@ class HeadMouseDriverService:
         self.gesture.set_dwell_time(self.config.get("dwell_time", 0.9))
         self.gesture.enable_nod_click = self.config.get("enable_nod_click", True)
         self.gesture.set_nod_sensitivity(self.config.get("nod_sensitivity", 6))
+        self.gesture.enable_nod_lock = self.config.get("enable_nod_lock", True)
 
         self.tracking_enabled = self.config.get("tracking_enabled", True)
         self.is_connected = False
@@ -127,6 +128,7 @@ class HeadMouseDriverService:
                 Menu.SEPARATOR,
                 item("开启停顿点击 (Dwell Click)", self.toggle_dwell, checked=lambda it: self.gesture.enable_dwell_click),
                 item("开启点头点击 (Nod Click)", self.toggle_nod, checked=lambda it: self.gesture.enable_nod_click),
+                item("开启点头防跑偏锁定", self.toggle_nod_lock, checked=lambda it: self.gesture.enable_nod_lock),
             )),
             Menu.SEPARATOR,
             item("⚙️ Windows 鼠标属性设置...", self.open_windows_mouse_settings),
@@ -218,6 +220,10 @@ class HeadMouseDriverService:
     def toggle_nod(self, icon=None, it=None):
         self.gesture.enable_nod_click = not self.gesture.enable_nod_click
         self.config.set("enable_nod_click", self.gesture.enable_nod_click)
+
+    def toggle_nod_lock(self, icon=None, it=None):
+        self.gesture.enable_nod_lock = not self.gesture.enable_nod_lock
+        self.config.set("enable_nod_lock", self.gesture.enable_nod_lock)
 
     def open_windows_mouse_settings(self, icon=None, it=None):
         try:

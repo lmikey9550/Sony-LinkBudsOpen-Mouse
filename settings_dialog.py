@@ -134,6 +134,15 @@ class SettingsDialog:
             foreground="#666666"
         ).pack(anchor="w", pady=(2, 0))
 
+        self.nod_lock_var = tk.BooleanVar(value=self.config.get("enable_nod_lock", True))
+        self.nod_lock_check = ttk.Checkbutton(
+            nod_frame,
+            text="🔒 启用点头防跑偏锁定 (点头时原地定格光标，点击原位锚点)",
+            variable=self.nod_lock_var,
+            command=self._on_nod_lock_toggle
+        )
+        self.nod_lock_check.pack(anchor="w", pady=(6, 0))
+
         # --- 3. 实时测试交互区 ---
         test_frame = ttk.Frame(main_frame)
         test_frame.pack(fill=tk.X, pady=(0, 15))
@@ -183,6 +192,13 @@ class SettingsDialog:
         if self.on_update:
             self.on_update()
 
+    def _on_nod_lock_toggle(self):
+        val = bool(self.nod_lock_var.get())
+        self.gesture.enable_nod_lock = val
+        self.config.set("enable_nod_lock", val)
+        if self.on_update:
+            self.on_update()
+
     def _on_test_click(self):
         self.test_click_count += 1
         if self.test_btn:
@@ -199,6 +215,9 @@ class SettingsDialog:
 
         self.nod_var.set(6)
         self._on_nod_slider_change(6)
+
+        self.nod_lock_var.set(True)
+        self._on_nod_lock_toggle()
 
     def _close_window(self):
         global _settings_window_instance

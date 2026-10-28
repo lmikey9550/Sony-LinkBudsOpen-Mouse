@@ -1,10 +1,11 @@
 {
     "tracking_enabled": true,
     "invert_x": false,
-    "invert_y": false,
+    "invert_y": true,
     "enable_dwell_click": false,
-    "dwell_time": 0.9,
+    "dwell_time": 1.0,
     "enable_nod_click": false,
+    "nod_sensitivity": 7,
     "deadzone": 1.2,
     "sensitivity": 0.85,
     "smoothing": 0.75

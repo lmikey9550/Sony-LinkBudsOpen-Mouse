@@ -17,6 +17,7 @@ DEFAULT_CONFIG = {
     "dwell_time": 0.9,
     "enable_nod_click": True,
     "nod_sensitivity": 6,
+    "enable_nod_lock": True,
     "deadzone": 1.2,
     "sensitivity": 0.85,
     "smoothing": 0.75
