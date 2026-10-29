@@ -1,8 +1,8 @@
 {
     "tracking_enabled": true,
-    "invert_x": true,
+    "invert_x": false,
     "invert_y": false,
-    "enable_dwell_click": true,
+    "enable_dwell_click": false,
     "dwell_time": 0.9,
     "enable_tilt_click": true,
     "tilt_threshold": 10.0,
