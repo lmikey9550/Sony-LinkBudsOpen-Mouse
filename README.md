@@ -49,28 +49,26 @@
 
 ---
 
-## 🚀 快速上手
+## 🚀 快速上手与下载
+
+### 📥 预编译安装包直接下载 (推荐)
+直接前往 **[GitHub Releases 最新发布页](https://github.com/lmikey9550/Sony-LinkBudsOpen-Mouse/releases/latest)** 获取已打包就绪的文件：
+* **Windows 单文件绿色免安装版**：`SonyLinkBudsHeadMouse.exe`（无需安装 Python，直接双击运行）
+* **Android 手机/平板安装包**：`SonyLinkBudsHeadMouse.apk`
+
+---
 
 ### 💻 Windows 电脑版
-1. **安装环境**：克隆本仓库并安装 Python 依赖：
-   ```bash
-   git clone https://github.com/lmikey9550/Sony-LinkBudsOpen-Mouse.git
-   cd Sony-LinkBudsOpen-Mouse
-   pip install -r requirements.txt
-   ```
-2. **生成桌面快捷方式**：
-   ```bash
-   python create_shortcut.py
-   ```
-3. **连接耳机**：戴上 Sony LinkBuds Open，电脑连接蓝牙音频后双击桌面快捷方式即可。
+1. 从 Releases 下载 `SonyLinkBudsHeadMouse.exe`（或源码克隆使用 `python app.py`）。
+2. 戴上 Sony LinkBuds Open，电脑连接蓝牙音频后直接双击运行即可。
+3. （可选）运行 `python create_shortcut.py` 可在桌面创建带管理员权限的快捷方式。
 
 ### 📱 Android 手机/平板版
-1. 编译好的安装包已生成：`SonyLinkBudsHeadMouse.apk`（位于仓库根目录或桌面）。
-2. 将 APK 传输至 Android 手机并安装（或通过 `adb install SonyLinkBudsHeadMouse.apk`）。
-3. 打开应用：
+1. 从 Releases 下载 `SonyLinkBudsHeadMouse.apk` 安装到手机（或 `adb install SonyLinkBudsHeadMouse.apk`）。
+2. 打开应用：
    - 授予“显示在其他应用上层（悬浮窗权限）”；
    - 在系统“无障碍”设置中开启 **“Sony LinkBuds 免手头控鼠标服务”**。
-4. 戴上耳机连接手机蓝牙，即刻畅享免手操作！
+3. 戴上耳机连接手机蓝牙，即刻畅享免手操作！
 
 ---
 

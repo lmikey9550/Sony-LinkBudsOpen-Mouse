@@ -49,3 +49,7 @@ android/build/
 android/app/build/
 android/local.properties
 *.apk
+
+# Packaged Executables (Upload to GitHub Releases instead)
+SonyLinkBudsHeadMouse.exe
+/SonyLinkBudsHeadMouse.exe
