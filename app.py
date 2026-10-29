@@ -109,7 +109,7 @@ class HeadMouseDriverService:
 
         self.tracking_enabled = self.config.get("tracking_enabled", True)
         self.is_connected = False
-        self.status_text = "正在初始化 LinkBuds 驱动..."
+        self.status_text = "等待连接 Sony 耳机 (请戴上耳机/开启蓝牙)..."
 
         self.tracker = HeadTrackerPipe(
             on_motion_callback=self._on_head_motion,
@@ -122,7 +122,7 @@ class HeadMouseDriverService:
 
     def _init_tray(self):
         menu = Menu(
-            item(lambda it: f"Sony LinkBuds: {self.status_text}", lambda: None, enabled=False),
+            item(lambda it: f"Sony 耳机: {self.status_text}", lambda: None, enabled=False),
             Menu.SEPARATOR,
             item(
                 "启用头控鼠标 (F9)",
@@ -168,14 +168,25 @@ class HeadMouseDriverService:
     def _on_connection_change(self, connected):
         self.is_connected = connected
         self._update_icon_state()
+        if self.icon:
+            try:
+                self.icon.update_menu()
+            except Exception:
+                pass
         if connected and self.icon:
             try:
-                self.icon.notify("Sony LinkBuds 已就绪，开始头控跟踪！", "Sony 鼠标驱动")
+                device = getattr(self.tracker, 'device_name', 'Sony 耳机')
+                self.icon.notify(f"{device} 已就绪，开始头控跟踪！", "Sony 鼠标驱动")
             except Exception:
                 pass
 
     def _on_tracker_status(self, msg):
         self.status_text = msg
+        if self.icon:
+            try:
+                self.icon.update_menu()
+            except Exception:
+                pass
 
     def toggle_tracking(self, icon=None, it=None):
         self.tracking_enabled = not self.tracking_enabled
