@@ -154,7 +154,7 @@ class HeadMouseDriverService:
         if not self.tracking_enabled:
             return
         f_yaw, f_pitch = self.accela.filter(yaw_rate, pitch_rate)
-        self.gesture.process_frame(f_yaw, f_pitch, pitch_rate)
+        self.gesture.process_frame(f_yaw, f_pitch, pitch_rate, cur_pitch)
 
     def _on_connection_change(self, connected):
         self.is_connected = connected

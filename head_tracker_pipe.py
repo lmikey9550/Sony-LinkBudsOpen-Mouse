@@ -237,7 +237,13 @@ class HeadTrackerPipe:
         self.current_pitch = pitch_deg
         self.current_roll = roll_deg
 
-        dt = max(1e-4, min(0.1, now_time - self.last_time))
+        # Sony LinkBuds 硬件采样率为固定 25Hz (0.040s)
+        # 防止操作系统管道批量投递导致微秒级 dt 造成角速度瞬间爆炸，强制平滑 dt
+        raw_dt = now_time - self.last_time
+        if raw_dt < 0.020:
+            dt = 0.040
+        else:
+            dt = min(0.060, max(0.030, raw_dt))
         self.last_time = now_time
 
         if self.last_yaw is not None:
