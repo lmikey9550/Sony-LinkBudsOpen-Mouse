@@ -181,7 +181,7 @@ class SettingsDialog:
         self.tap_enable_var = tk.BooleanVar(value=self.config.get("enable_wide_area_tap", True))
         tap_enable_check = ttk.Checkbutton(
             tap_frame,
-            text="启用耳周广域点击 (左耳周=左键，右耳周=右键)",
+            text="启用耳周广域点击 (右耳双击=左键，右耳三击=右键)",
             variable=self.tap_enable_var,
             command=self._on_tap_enable_toggle
         )
@@ -189,7 +189,7 @@ class SettingsDialog:
 
         ttk.Label(
             tap_frame,
-            text="说明：敲击左脸颊/耳周触发左键，敲击右脸颊/耳周触发右键 (自动屏蔽系统音乐切歌)",
+            text="说明：右耳双击触发左键，右耳三击触发右键 (免手机App设置；自动屏蔽系统音乐切歌)",
             font=font_small,
             foreground="#666666"
         ).pack(anchor="w")

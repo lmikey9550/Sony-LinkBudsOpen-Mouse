@@ -17,6 +17,8 @@ import threading
 import ctypes
 from ctypes import wintypes
 
+from silent_keepalive import SilentAudioKeepalive
+
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 
@@ -167,6 +169,7 @@ class WideAreaTapListener:
         self.ready_event = threading.Event()
         self.h_hook = None
         self.wm_shellhook = None
+        self.keepalive = SilentAudioKeepalive()
 
         self._wnd_proc_ref = WNDPROC(self._window_proc)
         self._ll_proc_ref = HOOKPROC(self._ll_keyboard_proc)
@@ -320,6 +323,7 @@ class WideAreaTapListener:
         if self.running:
             return
         self.running = True
+        self.keepalive.start()
         self.ready_event.clear()
         self.thread = threading.Thread(target=self._message_loop, daemon=True)
         self.thread.start()
@@ -329,6 +333,7 @@ class WideAreaTapListener:
         if not self.running:
             return
         self.running = False
+        self.keepalive.stop()
         if self.thread_id:
             user32.PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0)
         if self.thread:

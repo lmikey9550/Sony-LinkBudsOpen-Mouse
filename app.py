@@ -138,7 +138,7 @@ class HeadMouseDriverService:
                 Menu.SEPARATOR,
                 item("开启悬停点击 (Dwell Click)", self.toggle_dwell, checked=lambda it: self.gesture.enable_dwell_click),
                 item("开启左右歪头手势 (左歪=左键，右歪=右键)", self.toggle_tilt, checked=lambda it: self.gesture.enable_tilt_click),
-                item("开启耳周广域点击 (左耳=左键，右耳=右键)", self.toggle_wide_tap, checked=lambda it: self.tap_listener.enabled),
+                item("开启耳周广域点击 (右耳双击=左键，右耳三击=右键)", self.toggle_wide_tap, checked=lambda it: self.tap_listener.enabled),
             )),
             Menu.SEPARATOR,
             item("⚙️ Windows 鼠标属性设置...", self.open_windows_mouse_settings),
