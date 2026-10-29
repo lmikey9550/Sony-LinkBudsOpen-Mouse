@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sony LinkBuds 头控鼠标</string>
+    <string name="accessibility_service_label">Sony LinkBuds 免手头控鼠标服务</string>
+    <string name="accessibility_service_description">利用 Sony LinkBuds 耳机姿态传感器与耳周广域点击，为手部活动不便人士提供免手光标追踪、点击、拖动与系统导航无障碍服务。</string>
+
+    <string name="title_settings">免手操作与手势配置</string>
+    <string name="status_service_running">无障碍头控服务：正在运行 🟢</string>
+    <string name="status_service_stopped">无障碍头控服务：已停止 ⚪ (请点击开启)</string>
+    <string name="btn_enable_accessibility">开启无障碍服务</string>
+    <string name="btn_enable_overlay">授予悬浮窗权限</string>
+
+    <string name="drag_mode_title">安卓触屏拖动 / 滑动方案选择</string>
+    <string name="drag_mode_sticky">① 粘滞拖拽锁定 (左侧敲击按下，再敲一下释放)</string>
+    <string name="drag_mode_flick">② 智能轻挑翻页 (头部微挑自动翻页，刷长文利器)</string>
+    <string name="drag_mode_dock">③ 悬浮动作辅助条 (点击小岛切换拖动/滚动模式)</string>
+
+    <string name="right_action_title">右侧动作 (右耳敲击 / 右歪头)</string>
+    <string name="right_action_back">全局返回键 (Back - 强烈推荐)</string>
+    <string name="right_action_home">回到桌面 (Home)</string>
+    <string name="right_action_recents">多任务界面 (Recents)</string>
+
+    <string name="dwell_time_label">悬停停留时间：</string>
+    <string name="tilt_threshold_label">歪头触发角度阈值：</string>
+    <string name="test_click_area">🎯 点击与拖动测试区 (在此处测试悬停、敲击与拖拽)</string>
+</resources>
