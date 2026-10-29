@@ -5,6 +5,7 @@
 """
 
 import os
+import sys
 import json
 
 CONFIG_FILENAME = "config.json"
@@ -27,7 +28,10 @@ DEFAULT_CONFIG = {
 class ConfigManager:
     def __init__(self, base_dir=None):
         if base_dir is None:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+            if getattr(sys, 'frozen', False):
+                base_dir = os.path.dirname(os.path.abspath(sys.executable))
+            else:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
         self.config_path = os.path.join(base_dir, CONFIG_FILENAME)
         self.data = DEFAULT_CONFIG.copy()
         self.load()

@@ -54,13 +54,31 @@ class HeadTrackerPipe:
         self.is_connected = False
         self.last_sample_time = 0.0
 
-        # 定位底层的独立驱动引擎
+        # 定位底层的独立驱动引擎 (兼顾源码运行与 PyInstaller 打包环境)
+        self.exe_path = self._find_tracker_exe()
+
+    def _find_tracker_exe(self):
+        candidates = []
+        # 1. PyInstaller 运行时解压临时目录
+        if hasattr(sys, '_MEIPASS'):
+            candidates.append(os.path.join(sys._MEIPASS, "bin", "sony-head-tracker.exe"))
+            candidates.append(os.path.join(sys._MEIPASS, "sony-head-tracker.exe"))
+
+        # 2. 独立打包后的主可执行程序所在目录
+        if getattr(sys, 'frozen', False):
+            exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+            candidates.append(os.path.join(exe_dir, "bin", "sony-head-tracker.exe"))
+            candidates.append(os.path.join(exe_dir, "sony-head-tracker.exe"))
+
+        # 3. 源码开发目录
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.exe_path = os.path.join(base_dir, "bin", "sony-head-tracker.exe")
-        if not os.path.exists(self.exe_path):
-            alt_path = r"C:\Users\lmike\Desktop\sony-head-tracker\sony-head-tracker.exe"
-            if os.path.exists(alt_path):
-                self.exe_path = alt_path
+        candidates.append(os.path.join(base_dir, "bin", "sony-head-tracker.exe"))
+        candidates.append(os.path.join(base_dir, "sony-head-tracker.exe"))
+
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+        return candidates[0]
 
     def calibrate(self):
         """居中校准：以当前朝向为零点基准"""

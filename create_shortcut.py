@@ -1,5 +1,5 @@
 """
-一键在桌面创建带管理员权限的快捷方式 (无需第三方依赖，基于 Windows 原生 PowerShell COM)
+一键在桌面创建带管理员权限的快捷方式 (优先指向已打包的 SonyLinkBudsHeadMouse.exe)
 """
 
 import os
@@ -11,15 +11,27 @@ def create_desktop_shortcut():
     desktop = os.path.join(os.path.expanduser("~"), "Desktop")
     lnk_path = os.path.join(desktop, "Sony LinkBuds 头控鼠标.lnk")
 
-    pythonw = os.path.join(base_dir, ".venv", "Scripts", "pythonw.exe")
-    if not os.path.exists(pythonw):
-        pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+    exe_target = os.path.join(base_dir, "SonyLinkBudsHeadMouse.exe")
+    dist_target = os.path.join(base_dir, "dist", "SonyLinkBudsHeadMouse.exe")
+
+    if os.path.exists(exe_target):
+        target_path = exe_target
+        target_args = ""
+    elif os.path.exists(dist_target):
+        target_path = dist_target
+        target_args = ""
+    else:
+        pythonw = os.path.join(base_dir, ".venv", "Scripts", "pythonw.exe")
+        if not os.path.exists(pythonw):
+            pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+        target_path = pythonw
+        target_args = "app.py"
 
     ps_script = f"""
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut('{lnk_path}')
-$shortcut.TargetPath = '{pythonw}'
-$shortcut.Arguments = 'app.py'
+$shortcut.TargetPath = '{target_path}'
+$shortcut.Arguments = '{target_args}'
 $shortcut.WorkingDirectory = '{base_dir}'
 $shortcut.Description = 'Sony LinkBuds Open 头控鼠标免手驱动'
 $shortcut.Save()
@@ -35,7 +47,7 @@ $shortcut.Save()
                 f.seek(0)
                 f.write(data)
 
-    print(f"[OK] Desktop shortcut created: {lnk_path}")
+    print(f"[OK] Desktop shortcut updated to: {target_path}")
 
 if __name__ == "__main__":
     create_desktop_shortcut()

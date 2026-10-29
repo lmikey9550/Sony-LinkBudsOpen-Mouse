@@ -36,13 +36,13 @@ REG_APP_NAME = "SonyLinkBudsHeadMouse"
 _mutex_handle = None
 
 def ensure_single_instance():
-    """Windows 全局命名互斥锁，防止多开造成端口/设备句柄冲突"""
+    """Windows 会话级命名互斥锁，防止多开造成端口/设备句柄冲突"""
     global _mutex_handle
     kernel32 = ctypes.windll.kernel32
-    mutex_name = "Global\\SonyLinkBudsHeadMouseInstanceMutex"
+    mutex_name = "Local\\SonyLinkBudsHeadMouseInstanceMutex"
     _mutex_handle = kernel32.CreateMutexW(None, False, mutex_name)
     ERROR_ALREADY_EXISTS = 183
-    if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+    if _mutex_handle and kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
         sys.exit(0)
 
 def require_admin():
@@ -253,10 +253,15 @@ class HeadMouseDriverService:
                 if current:
                     winreg.DeleteValue(key, REG_APP_NAME)
                 else:
-                    base_dir = os.path.dirname(os.path.abspath(__file__))
-                    pythonw = os.path.join(base_dir, ".venv", "Scripts", "pythonw.exe")
-                    app_py = os.path.join(base_dir, "app.py")
-                    cmd = f'"{pythonw}" "{app_py}"'
+                    if getattr(sys, 'frozen', False):
+                        cmd = f'"{sys.executable}"'
+                    else:
+                        base_dir = os.path.dirname(os.path.abspath(__file__))
+                        pythonw = os.path.join(base_dir, ".venv", "Scripts", "pythonw.exe")
+                        if not os.path.exists(pythonw):
+                            pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+                        app_py = os.path.join(base_dir, "app.py")
+                        cmd = f'"{pythonw}" "{app_py}"'
                     winreg.SetValueEx(key, REG_APP_NAME, 0, winreg.REG_SZ, cmd)
         except Exception as e:
             print("注册表开机自启更新失败:", e)
