@@ -1,13 +1,11 @@
 """
-Sony LinkBuds 耳机硬件动作与按键专属抓包诊断工具 (纯净免翻译版)
-- 彻底剔除电脑键盘所有字母、数字、标点及常规编辑键
-- 杜绝一切自作聪明的“头部运动翻译”与“冲击波猜测”
-- 原汁原味捕获耳机发送给 Windows 的真实信号：
-  1. 蓝牙 AVRCP 媒体按键 (Play/Pause 0xB3, Next 0xB0, Prev 0xB1, Vol 0xAE/0xAF 等)
-  2. 系统广播 WM_APPCOMMAND 与 ShellHook
-  3. 全局特殊功能键 (F13~F24, LaunchApp 等非打字键)
-  4. RawInput 原始 HID Consumer / 电话控制数据包
-  5. 25Hz 耳机姿态遥测 (仅做顶部数字显示，绝不产生误判日志)
+Sony LinkBuds 耳机动作全频段实时抓包监听器 (完全零过滤版)
+- 抓取 Windows 系统的所有输入通道：
+  1. 低级键盘钩子 (WH_KEYBOARD_LL): 捕获所有按键 (0x00 ~ 0xFF)，含 Win键、F功能键、特殊键、媒体键，支持 KeyDown 与 KeyUp
+  2. 低级鼠标钩子 (WH_MOUSE_LL): 捕获可能产生的鼠标原生按键 (左键、右键、中键、侧键)
+  3. 蓝牙/多媒体指令 (WM_APPCOMMAND & ShellHook): 捕获所有 AVRCP 媒体广播
+  4. 原始 HID 报文 (WM_INPUT): 捕获 Consumer Control 与 通话控制数据
+  5. 实时同步写入日志文件 live_tap.log
 """
 
 import os
@@ -70,6 +68,16 @@ class KBDLLHOOKSTRUCT(ctypes.Structure):
         ('dwExtraInfo', ctypes.POINTER(wintypes.ULONG))
     ]
 
+class MSLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ('pt_x', ctypes.c_long),
+        ('pt_y', ctypes.c_long),
+        ('mouseData', wintypes.DWORD),
+        ('flags', wintypes.DWORD),
+        ('time', wintypes.DWORD),
+        ('dwExtraInfo', ctypes.POINTER(wintypes.ULONG))
+    ]
+
 class RAWINPUTDEVICE(ctypes.Structure):
     _fields_ = [
         ('usUsagePage', wintypes.USHORT),
@@ -86,47 +94,20 @@ class RAWINPUTHEADER(ctypes.Structure):
         ('wParam', wintypes.WPARAM)
     ]
 
-# 严格过滤物理键盘所有的普通打字按键，防止键盘输入干扰
-TYPING_VK_BLOCKLIST = set(
-    list(range(0x30, 0x3A)) + # 0-9
-    list(range(0x41, 0x5B)) + # A-Z
-    list(range(0x60, 0x70)) + # 小键盘 Numpad
-    list(range(0x70, 0x7C)) + # F1-F12
-    [
-        0x08, 0x09, 0x0D, 0x1B, 0x20, # Backspace, Tab, Enter, Esc, Space
-        0x10, 0x11, 0x12, 0x14,       # Shift, Ctrl, Alt, CapsLock
-        0x5B, 0x5C,                   # LWin, RWin
-        0x21, 0x22, 0x23, 0x24,       # PageUp, PageDown, End, Home
-        0x25, 0x26, 0x27, 0x28,       # Left, Up, Right, Down
-        0x2C, 0x2D, 0x2E,             # PrintScreen, Insert, Delete
-        0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0, # ; = , - . / `
-        0xDB, 0xDC, 0xDD, 0xDE        # [ \ ] '
-    ]
-)
-
-KNOWN_SPECIAL_KEYS = {
-    0xAD: "音量静音 (VOLUME_MUTE)",
-    0xAE: "音量减 (VOLUME_DOWN)",
-    0xAF: "音量加 (VOLUME_UP)",
-    0xB0: "下一首 (MEDIA_NEXT_TRACK)",
-    0xB1: "上一首 (MEDIA_PREV_TRACK)",
-    0xB2: "停止 (MEDIA_STOP)",
-    0xB3: "播放/暂停 (MEDIA_PLAY_PAUSE)",
-    0xA6: "浏览器后退 (BROWSER_BACK)",
-    0xA7: "浏览器前进 (BROWSER_FORWARD)",
-    0xA8: "浏览器刷新 (BROWSER_REFRESH)",
-    0xA9: "浏览器停止 (BROWSER_STOP)",
-    0xAA: "浏览器搜索 (BROWSER_SEARCH)",
-    0xAB: "浏览器收藏 (BROWSER_FAVORITES)",
-    0xAC: "浏览器主页 (BROWSER_HOME)",
-    0xB4: "启动邮件 (LAUNCH_MAIL)",
-    0xB5: "媒体选择 (LAUNCH_MEDIA_SELECT)",
-    0xB6: "启动应用1 (LAUNCH_APP1)",
-    0xB7: "启动应用2 (LAUNCH_APP2)",
-    0x5F: "系统睡眠 (SLEEP)"
+VK_NAMES = {
+    0x01: "鼠标左键", 0x02: "鼠标右键", 0x04: "鼠标中键", 0x05: "鼠标侧键1", 0x06: "鼠标侧键2",
+    0x0D: "回车(ENTER)", 0x1B: "ESC", 0x20: "空格(SPACE)",
+    0x5B: "左Win键", 0x5C: "右Win键",
+    0x5F: "系统睡眠",
+    0xA6: "浏览器后退", 0xA7: "浏览器前进", 0xA8: "浏览器刷新", 0xA9: "浏览器停止", 0xAA: "浏览器搜索",
+    0xAB: "浏览器收藏", 0xAC: "浏览器主页",
+    0xAD: "音量静音 (VOLUME_MUTE)", 0xAE: "音量减 (VOLUME_DOWN)", 0xAF: "音量加 (VOLUME_UP)",
+    0xB0: "下一首 (MEDIA_NEXT_TRACK)", 0xB1: "上一首 (MEDIA_PREV_TRACK)",
+    0xB2: "停止 (MEDIA_STOP)", 0xB3: "播放/暂停 (MEDIA_PLAY_PAUSE)",
+    0xB4: "启动邮件", 0xB5: "启动媒体", 0xB6: "启动应用1", 0xB7: "启动应用2"
 }
-for i in range(13, 25):
-    KNOWN_SPECIAL_KEYS[0x70 + i - 1] = f"F{i}"
+for i in range(1, 25):
+    VK_NAMES[0x70 + i - 1] = f"F{i}"
 
 APPCOMMAND_NAMES = {
     8: "APPCOMMAND_VOLUME_MUTE (静音)",
@@ -140,7 +121,9 @@ APPCOMMAND_NAMES = {
     47: "APPCOMMAND_MEDIA_PAUSE (暂停)"
 }
 
-class DedicatedHeadsetSniffer:
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_tap.log")
+
+class UniversalSniffer:
     def __init__(self, log_queue, telemetry_callback):
         self.queue = log_queue
         self.telemetry_cb = telemetry_callback
@@ -151,51 +134,65 @@ class DedicatedHeadsetSniffer:
         self.win32_thread = None
         self.win32_tid = None
         self.hwnd = None
-        self.h_hook = None
+        self.h_hook_kb = None
+        self.h_hook_mouse = None
         self.wm_shellhook = None
 
         self.keepalive = SilentAudioKeepalive()
 
-        self.last_yaw = None
-        self.last_pitch = None
-        self.last_roll = None
-        self.last_time = time.perf_counter()
-
         self._wnd_proc_ref = WNDPROC(self._window_proc)
-        self._ll_proc_ref = HOOKPROC(self._ll_proc)
+        self._ll_kb_ref = HOOKPROC(self._ll_kb_proc)
+        self._ll_mouse_ref = HOOKPROC(self._ll_mouse_proc)
 
     def log(self, channel, message, level="INFO"):
         t_str = time.strftime("%H:%M:%S") + f".{int(time.time()*1000)%1000:03d}"
+        line = f"[{t_str}] [{channel}] {message}\n"
         self.queue.put((t_str, channel, message, level))
+        try:
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(line)
+        except Exception:
+            pass
 
-    def _ll_proc(self, nCode, wParam, lParam):
+    def _ll_kb_proc(self, nCode, wParam, lParam):
         if nCode >= 0:
             p = KBDLLHOOKSTRUCT.from_address(lParam)
             vk = p.vkCode
-            # 过滤物理普通打字键，其余所有特殊/媒体/扩展键真实原样输出，不加任何脑补修饰
-            if vk not in TYPING_VK_BLOCKLIST and wParam in (0x0100, 0x0104):
-                name = KNOWN_SPECIAL_KEYS.get(vk, f"未知键 0x{vk:02X}")
-                self.log("按键/指令监听 (Hook)", f"收到指令: {name} [vk=0x{vk:02X}, scan=0x{p.scanCode:02X}, flags=0x{p.flags:02X}]", "HIT")
+            # 零过滤：捕获全部虚拟按键 (0x00 ~ 0xFF)
+            act = "按下(Down)" if wParam in (0x0100, 0x0104) else "松开(Up)"
+            name = VK_NAMES.get(vk, f"按键0x{vk:02X}")
+            self.log("键盘总线 (Hook)", f"【{act}】{name} [vk=0x{vk:02X}, scan=0x{p.scanCode:02X}, flags=0x{p.flags:02X}]", "HIT")
+        return user32.CallNextHookEx(None, nCode, wParam, lParam)
+
+    def _ll_mouse_proc(self, nCode, wParam, lParam):
+        if nCode >= 0:
+            # 捕获物理鼠标按键动作 (跳过纯移动 WM_MOUSEMOVE 0x0200)
+            if wParam in (0x0201, 0x0202, 0x0204, 0x0205, 0x0207, 0x0208, 0x020B, 0x020C):
+                m_names = {
+                    0x0201: "左键按下", 0x0202: "左键抬起",
+                    0x0204: "右键按下", 0x0205: "右键抬起",
+                    0x0207: "中键按下", 0x0208: "中键抬起",
+                    0x020B: "侧键按下", 0x020C: "侧键抬起"
+                }
+                m_str = m_names.get(wParam, f"鼠标消息0x{wParam:04X}")
+                self.log("鼠标总线 (Hook)", f"收到: {m_str}", "HIT")
         return user32.CallNextHookEx(None, nCode, wParam, lParam)
 
     def _window_proc(self, hwnd, msg, wp, lp):
-        # 1. 窗口收到 WM_APPCOMMAND
-        if msg == 0x0319:
+        if msg == 0x0319: # WM_APPCOMMAND
             cmd = ((lp >> 16) & ~0xF000)
             name = APPCOMMAND_NAMES.get(cmd, f"APPCOMMAND_{cmd}")
-            self.log("系统多媒体指令 (WM_APPCOMMAND)", f"{name} [cmd={cmd}]", "HIT")
+            self.log("多媒体广播 (WM_APPCOMMAND)", f"收到: {name} [cmd={cmd}]", "HIT")
             return 1
 
-        # 2. 窗口收到 ShellHook 广播
         if self.wm_shellhook and msg == self.wm_shellhook:
             if wp == 12: # HSHELL_APPCOMMAND
                 cmd = ((lp >> 16) & ~0xF000)
                 name = APPCOMMAND_NAMES.get(cmd, f"APPCOMMAND_{cmd}")
-                self.log("蓝牙系统广播 (ShellHook)", f"{name} [cmd={cmd}]", "HIT")
+                self.log("系统广播 (ShellHook)", f"收到: {name} [cmd={cmd}]", "HIT")
                 return 1
 
-        # 3. 原始输入 WM_INPUT
-        if msg == 0x00FF:
+        if msg == 0x00FF: # WM_INPUT
             try:
                 raw_size = wintypes.UINT()
                 user32.GetRawInputData(lp, 0x10000003, None, ctypes.byref(raw_size), ctypes.sizeof(RAWINPUTHEADER))
@@ -206,7 +203,7 @@ class DedicatedHeadsetSniffer:
                     if header.dwType == 2: # RIM_TYPEHID
                         hex_data = ' '.join(f'{b & 0xFF:02X}' for b in buf[ctypes.sizeof(RAWINPUTHEADER):])
                         if hex_data.strip():
-                            self.log("原始输入 (WM_INPUT/HID)", f"长度={raw_size.value} 数据: {hex_data}", "HIT")
+                            self.log("原始HID流 (WM_INPUT)", f"长度={raw_size.value} 字节: {hex_data}", "HIT")
             except Exception:
                 pass
             return 0
@@ -215,7 +212,7 @@ class DedicatedHeadsetSniffer:
 
     def _win32_loop(self):
         h_inst = kernel32.GetModuleHandleW(None)
-        cls_name = f"SonyRawSniffer_{id(self)}"
+        cls_name = f"SonySnifferAll_{id(self)}"
 
         cls = WNDCLASSEXW()
         cls.cbSize = ctypes.sizeof(WNDCLASSEXW)
@@ -225,7 +222,7 @@ class DedicatedHeadsetSniffer:
         user32.RegisterClassExW(ctypes.byref(cls))
 
         self.hwnd = user32.CreateWindowExW(
-            0, cls_name, "SonyRawSnifferWin",
+            0, cls_name, "SonySnifferAllWin",
             0x80000000, 0, 0, 0, 0,
             None, None, h_inst, None
         )
@@ -234,90 +231,54 @@ class DedicatedHeadsetSniffer:
         if self.hwnd:
             user32.RegisterShellHookWindow(self.hwnd)
 
-            # 注册 RawInput 捕获 Consumer Control 与 Telephony 原始上报
             devs = (RAWINPUTDEVICE * 2)()
-            devs[0].usUsagePage = 0x000C # Consumer Control (播放、音量等)
+            devs[0].usUsagePage = 0x000C
             devs[0].usUsage = 0x0001
-            devs[0].dwFlags = 0x00000100 # RIDEV_INPUTSINK
+            devs[0].dwFlags = 0x00000100
             devs[0].hwndTarget = self.hwnd
 
-            devs[1].usUsagePage = 0x000B # Telephony (通话接听/挂断)
+            devs[1].usUsagePage = 0x000B
             devs[1].usUsage = 0x0001
-            devs[1].dwFlags = 0x00000100 # RIDEV_INPUTSINK
+            devs[1].dwFlags = 0x00000100
             devs[1].hwndTarget = self.hwnd
 
             user32.RegisterRawInputDevices(devs, 2, ctypes.sizeof(RAWINPUTDEVICE))
 
-        # 安装低级键盘钩子 (过滤常规打字键)
-        self.h_hook = user32.SetWindowsHookExW(
-            13, # WH_KEYBOARD_LL
-            self._ll_proc_ref,
-            h_inst,
-            0
-        )
+        self.h_hook_kb = user32.SetWindowsHookExW(13, self._ll_kb_ref, h_inst, 0)
+        self.h_hook_mouse = user32.SetWindowsHookExW(14, self._ll_mouse_ref, h_inst, 0)
 
         self.win32_tid = kernel32.GetCurrentThreadId()
-        self.log("系统状态", "蓝牙指令通道已就绪 (AVRCP / ShellHook / RawInput)", "INFO")
+        self.log("监听器状态", "全频段实时监听已启动 (已监听所有键盘/鼠标/蓝牙AVRCP/HID通道)", "INFO")
 
         msg = wintypes.MSG()
         while user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) > 0:
             user32.TranslateMessage(ctypes.byref(msg))
             user32.DispatchMessageW(ctypes.byref(msg))
 
-        if self.h_hook:
-            user32.UnhookWindowsHookEx(self.h_hook)
+        if self.h_hook_kb: user32.UnhookWindowsHookEx(self.h_hook_kb)
+        if self.h_hook_mouse: user32.UnhookWindowsHookEx(self.h_hook_mouse)
         if self.hwnd:
             user32.DeregisterShellHookWindow(self.hwnd)
             user32.DestroyWindow(self.hwnd)
 
     def _udp_loop(self):
-        """直连 127.0.0.1:4242 仅作为头部姿态数字仪表盘，绝不产生误判日志"""
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             self.udp_sock.bind(('127.0.0.1', 4242))
             self.udp_sock.settimeout(0.5)
-            self.log("姿态传感器", "✅ 成功接入 127.0.0.1:4242 索尼耳机六轴数据总线", "INFO")
-        except Exception as e:
-            self.log("姿态传感器", f"❌ 绑定 4242 端口失败: {e}", "WARN")
+        except Exception:
             return
 
         while self.running:
             try:
                 data, _ = self.udp_sock.recvfrom(1024)
                 if len(data) >= 48:
-                    now = time.perf_counter()
-                    dt = max(0.015, min(0.080, now - self.last_time))
-                    self.last_time = now
-
                     x, y, z, yaw, pitch, roll = struct.unpack('<6d', data[:48])
-
-                    if self.last_yaw is not None:
-                        dy = yaw - self.last_yaw
-                        dp = pitch - self.last_pitch
-                        dr = roll - self.last_roll
-
-                        if dy > 180.0: dy -= 360.0
-                        elif dy < -180.0: dy += 360.0
-                        if dp > 180.0: dp -= 360.0
-                        elif dp < -180.0: dp += 360.0
-                        if dr > 180.0: dr -= 360.0
-                        elif dr < -180.0: dr += 360.0
-
-                        yr = dy / dt
-                        pr = dp / dt
-                        rr = dr / dt
-                        speed = math.hypot(yr, pr, rr)
-
-                        # 纯更新 UI 仪表盘数字，绝对不在这里做任何敲击猜测或日志输出
-                        if self.telemetry_cb:
-                            self.telemetry_cb(yaw, pitch, roll, speed)
-
-                    self.last_yaw, self.last_pitch, self.last_roll = yaw, pitch, roll
-            except socket.timeout:
-                continue
+                    if self.telemetry_cb:
+                        self.telemetry_cb(yaw, pitch, roll)
             except Exception:
-                break
+                continue
 
         if self.udp_sock:
             try: self.udp_sock.close()
@@ -326,12 +287,9 @@ class DedicatedHeadsetSniffer:
     def start(self):
         if self.running: return
         self.running = True
-
         self.keepalive.start()
-
         self.udp_thread = threading.Thread(target=self._udp_loop, daemon=True)
         self.udp_thread.start()
-
         self.win32_thread = threading.Thread(target=self._win32_loop, daemon=True)
         self.win32_thread.start()
 
@@ -345,115 +303,90 @@ class DedicatedHeadsetSniffer:
 class TapTesterApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("🎧 Sony LinkBuds 耳机动作原始数据诊断工具 (纯净原样版)")
-        self.root.geometry("880x640")
-        self.root.minsize(750, 500)
+        self.root.title("🎧 Sony LinkBuds 全协议实时抓包器 (零过滤/全信号直显)")
+        self.root.geometry("900x620")
+        self.root.minsize(760, 480)
 
         self.topmost_var = tk.BooleanVar(value=True)
         self.root.attributes("-topmost", True)
 
         self.log_queue = queue.Queue()
-        self.sniffer = DedicatedHeadsetSniffer(self.log_queue, self._on_telemetry)
+        self.sniffer = UniversalSniffer(self.log_queue, self._on_telemetry)
 
         self._build_ui()
         self.sniffer.start()
 
-        self.root.after(40, self._process_queue)
+        self.root.after(30, self._process_queue)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self):
-        # 顶部提示
-        top_frame = ttk.Frame(self.root, padding=12)
+        top_frame = ttk.Frame(self.root, padding=10)
         top_frame.pack(fill=tk.X)
 
-        title = ttk.Label(top_frame, text="🎧 Sony LinkBuds 硬件指令与耳周点击原始监听器", font=("Microsoft YaHei UI", 12, "bold"))
+        title = ttk.Label(top_frame, text="🟢 实时抓包模式已就绪 (无任何过滤，捕获全系统事件)", font=("Microsoft YaHei UI", 12, "bold"))
         title.pack(anchor=tk.W)
 
         desc = ttk.Label(
             top_frame,
-            text="★ 已彻底移除所有“头部转动翻译”与“冲击波猜测”，纯粹捕获耳机向 Windows 上报的原生信号。\n"
-                 "★ 右耳点击已验证：双连击触发【播放/暂停 0xB3】，三连击触发【下一首 0xB0】。\n"
-                 "★ 左耳点击请注意：耳周点击硬件机制必须是快速敲两下(双击)或三下；若仍无反应，请在手机 Sony App 检查左耳功能分配。",
+            text="★ 请在不要触碰电脑键盘的情况下，用手指在【左耳周 / 左脸颊】快速连续双击 2 次。\n"
+                 "★ 只要耳机向电脑发送了任何按键、鼠标信号、蓝牙多媒体指令或原始HID字节，下方均会立即高亮显示！",
             font=("Microsoft YaHei UI", 9),
-            foreground="#333333",
-            justify=tk.LEFT
+            foreground="#222222"
         )
-        desc.pack(anchor=tk.W, pady=(4, 6))
+        desc.pack(anchor=tk.W, pady=(2, 4))
 
-        # 实时姿态数据（仅展示数值）
-        meter_frame = ttk.LabelFrame(self.root, text="📡 索尼耳机实时头部姿态 (UDP 4242 仅作仪表盘展示)", padding=8)
-        meter_frame.pack(fill=tk.X, padx=12, pady=(0, 8))
+        meter_frame = ttk.LabelFrame(self.root, text="📡 头部姿态 (UDP 4242)", padding=6)
+        meter_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
 
         m_box = ttk.Frame(meter_frame)
         m_box.pack(fill=tk.X)
-
-        self.lbl_yaw = ttk.Label(m_box, text="偏航角 (Yaw): 0.0°", font=("Consolas", 10, "bold"), width=22)
+        self.lbl_yaw = ttk.Label(m_box, text="Yaw: 0.0°", font=("Consolas", 10, "bold"), width=18)
         self.lbl_yaw.pack(side=tk.LEFT)
-
-        self.lbl_pitch = ttk.Label(m_box, text="俯仰角 (Pitch): 0.0°", font=("Consolas", 10, "bold"), width=22)
+        self.lbl_pitch = ttk.Label(m_box, text="Pitch: 0.0°", font=("Consolas", 10, "bold"), width=18)
         self.lbl_pitch.pack(side=tk.LEFT)
-
-        self.lbl_roll = ttk.Label(m_box, text="翻滚角 (Roll): 0.0°", font=("Consolas", 10, "bold"), width=22)
+        self.lbl_roll = ttk.Label(m_box, text="Roll: 0.0°", font=("Consolas", 10, "bold"), width=18)
         self.lbl_roll.pack(side=tk.LEFT)
 
-        self.lbl_speed = ttk.Label(m_box, text="转头速度: 0.0°/s", font=("Consolas", 10), foreground="#666666")
-        self.lbl_speed.pack(side=tk.LEFT)
-
-        # 最新捕获指令卡片
-        card_box = ttk.Frame(self.root, padding=(12, 0, 12, 8))
-        card_box.pack(fill=tk.X)
-
-        self.card_latest = ttk.Label(
-            card_box,
-            text="⚡ 最近收到的硬件指令: 等待耳机操作...",
-            font=("Microsoft YaHei UI", 10, "bold"),
-            background="#F0F4F8",
-            foreground="#005A9E",
+        self.lbl_status = ttk.Label(
+            self.root,
+            text="⚡ 等待左侧双击动作...",
+            font=("Microsoft YaHei UI", 11, "bold"),
+            background="#FFF3CD",
+            foreground="#856404",
             padding=8,
             relief=tk.GROOVE
         )
-        self.card_latest.pack(fill=tk.X)
+        self.lbl_status.pack(fill=tk.X, padx=10, pady=(0, 6))
 
-        # 控制栏
-        ctrl = ttk.Frame(self.root, padding=(12, 0, 12, 6))
+        ctrl = ttk.Frame(self.root, padding=(10, 0, 10, 6))
         ctrl.pack(fill=tk.X)
-
-        btn_copy = ttk.Button(ctrl, text="📋 复制全部诊断数据", command=self.copy_all)
+        btn_copy = ttk.Button(ctrl, text="📋 复制全部日志", command=self.copy_all)
         btn_copy.pack(side=tk.LEFT, padx=(0, 6))
-
         btn_clear = ttk.Button(ctrl, text="🗑️ 清空日志", command=self.clear_logs)
         btn_clear.pack(side=tk.LEFT, padx=(0, 6))
-
-        btn_save = ttk.Button(ctrl, text="💾 保存诊断报告", command=self.save_logs)
-        btn_save.pack(side=tk.LEFT, padx=(0, 12))
-
-        chk_top = ttk.Checkbutton(ctrl, text="窗口始终置顶", variable=self.topmost_var, command=self.toggle_topmost)
+        chk_top = ttk.Checkbutton(ctrl, text="置顶显示", variable=self.topmost_var, command=self.toggle_topmost)
         chk_top.pack(side=tk.RIGHT)
 
-        # 日志输出文本框
-        log_frame = ttk.Frame(self.root, padding=(12, 0, 12, 12))
+        log_frame = ttk.Frame(self.root, padding=(10, 0, 10, 10))
         log_frame.pack(fill=tk.BOTH, expand=True)
 
         self.text = tk.Text(log_frame, wrap=tk.WORD, font=("Consolas", 10), bg="#1E1E1E", fg="#D4D4D4", insertbackground="white")
         scrollbar = ttk.Scrollbar(log_frame, orient=tk.VERTICAL, command=self.text.yview)
         self.text.configure(yscrollcommand=scrollbar.set)
-
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.text.tag_config("TIME", foreground="#777777")
-        self.text.tag_config("HIT", foreground="#38E888", font=("Consolas", 10, "bold"))
-        self.text.tag_config("WARN", foreground="#E8A038")
+        self.text.tag_config("TIME", foreground="#888888")
+        self.text.tag_config("HIT", foreground="#00FF66", font=("Consolas", 10, "bold"))
         self.text.tag_config("INFO", foreground="#4DAAF8")
 
     def toggle_topmost(self):
         self.root.attributes("-topmost", self.topmost_var.get())
 
-    def _on_telemetry(self, yaw, pitch, roll, speed):
-        self.lbl_yaw.config(text=f"偏航角 (Yaw): {yaw:+6.1f}°")
-        self.lbl_pitch.config(text=f"俯仰角 (Pitch): {pitch:+6.1f}°")
-        self.lbl_roll.config(text=f"翻滚角 (Roll): {roll:+6.1f}°")
-        self.lbl_speed.config(text=f"转头速度: {speed:5.1f}°/s")
+    def _on_telemetry(self, yaw, pitch, roll):
+        self.lbl_yaw.config(text=f"Yaw: {yaw:+6.1f}°")
+        self.lbl_pitch.config(text=f"Pitch: {pitch:+6.1f}°")
+        self.lbl_roll.config(text=f"Roll: {roll:+6.1f}°")
 
     def _process_queue(self):
         while not self.log_queue.empty():
@@ -464,13 +397,13 @@ class TapTesterApp:
             self.text.see(tk.END)
 
             if level == "HIT":
-                self.card_latest.config(
-                    text=f"⚡ 最新捕获: {msg}",
+                self.lbl_status.config(
+                    text=f"🟢 捕获到信号: {msg}",
                     background="#D4EDDA",
                     foreground="#155724"
                 )
 
-        self.root.after(40, self._process_queue)
+        self.root.after(30, self._process_queue)
 
     def copy_all(self):
         content = self.text.get("1.0", tk.END).strip()
@@ -479,28 +412,10 @@ class TapTesterApp:
             return
         self.root.clipboard_clear()
         self.root.clipboard_append(content)
-        messagebox.showinfo("成功", "诊断数据已复制到剪贴板，请直接粘贴发送！")
+        messagebox.showinfo("成功", "已复制到剪贴板！")
 
     def clear_logs(self):
         self.text.delete("1.0", tk.END)
-
-    def save_logs(self):
-        content = self.text.get("1.0", tk.END).strip()
-        if not content:
-            messagebox.showinfo("提示", "当前日志为空")
-            return
-        fp = filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
-            initialfile="SonyLinkBuds_Diagnostic_Report.txt"
-        )
-        if fp:
-            try:
-                with open(fp, "w", encoding="utf-8") as f:
-                    f.write(content)
-                messagebox.showinfo("成功", f"诊断报告已保存到:\n{fp}")
-            except Exception as e:
-                messagebox.showerror("错误", f"保存失败: {e}")
 
     def _on_close(self):
         self.sniffer.stop()
