@@ -33,6 +33,8 @@ class OverlayCursorManager(private val context: Context) {
 
     private var isDragging = false
     private var dwellProgress = 0f
+    private var isHeadsetConnected = false
+    private var statusDescription = "未连接耳机传感器"
 
     init {
         updateScreenDimensions()
@@ -107,6 +109,12 @@ class OverlayCursorManager(private val context: Context) {
         cursorView?.postInvalidate()
     }
 
+    fun setHeadsetStatus(connected: Boolean, text: String) {
+        isHeadsetConnected = connected
+        statusDescription = text
+        cursorView?.postInvalidate()
+    }
+
     fun flashFeedback(action: String) {
         cursorView?.triggerFlash()
     }
@@ -144,6 +152,19 @@ class OverlayCursorManager(private val context: Context) {
             color = Color.parseColor("#802ECC71")
         }
 
+        private val statusTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 28f
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            setShadowLayer(4f, 0f, 2f, Color.parseColor("#80000000"))
+        }
+
+        private val statusBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#D92C3E50")
+            style = Paint.Style.FILL
+        }
+
         private var isFlashing = false
         private val rectF = RectF()
 
@@ -162,6 +183,25 @@ class OverlayCursorManager(private val context: Context) {
             val x = cursorX
             val y = cursorY
             val radius = 32f
+
+            // 0. 耳机未连接安全保护状态
+            if (!isHeadsetConnected) {
+                outerCirclePaint.color = Color.parseColor("#B0E74C3C")
+                centerDotPaint.color = Color.parseColor("#E74C3C")
+                canvas.drawCircle(x, y, radius, outerCirclePaint)
+                canvas.drawCircle(x, y, 8f, centerDotPaint)
+
+                val badgeText = "等待 LinkBuds 耳机连接"
+                val textWidth = statusTextPaint.measureText(badgeText)
+                val padX = 20f
+                val topY = y + radius + 12f
+                val bgRect = RectF(x - textWidth / 2 - padX, topY, x + textWidth / 2 + padX, topY + 44f)
+                canvas.drawRoundRect(bgRect, 10f, 10f, statusBgPaint)
+                canvas.drawText(badgeText, x, topY + 31f, statusTextPaint)
+                return
+            }
+
+            outerCirclePaint.color = Color.WHITE
 
             // 1. 若触发了点击，绘制瞬间扩散绿光
             if (isFlashing) {

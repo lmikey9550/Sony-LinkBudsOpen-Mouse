@@ -74,6 +74,71 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- 耳机硬件传感器连接诊断卡片 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="16dp"
+            android:elevation="2dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🎧 耳机外设传感器源监测"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#0066CC" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="彻底屏蔽手机自带陀螺仪，100% 仅连接 Sony LinkBuds 硬件传感器"
+                android:textSize="12sp"
+                android:textColor="#8899AA"
+                android:layout_marginTop="3dp"
+                android:layout_marginBottom="10dp" />
+
+            <!-- 当前传感器识别状态 -->
+            <TextView
+                android:id="@+id/tv_sensor_source"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#F8F9FA"
+                android:padding="10dp"
+                android:text="❌ 未检测到耳机传感器 (请确认佩戴耳机并开启蓝牙)"
+                android:textColor="#E74C3C"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <!-- 实时姿态数据 -->
+            <TextView
+                android:id="@+id/tv_sensor_angles"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#EEF2F7"
+                android:padding="10dp"
+                android:text="实时姿态：Yaw(偏航): 0.0°  Pitch(俯仰): 0.0°  Roll(翻滚): 0.0°"
+                android:textColor="#2C3E50"
+                android:textSize="12sp"
+                android:fontFamily="monospace" />
+
+            <!-- 重新探测按钮 -->
+            <Button
+                android:id="@+id/btn_redetect_sensor"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="🔄 重新探测并绑定耳机传感器"
+                android:textSize="13sp"
+                android:backgroundTint="#0066CC"
+                android:textColor="#FFFFFF" />
+
+        </LinearLayout>
+
         <!-- 触屏拖动/滑动策略配置卡片 -->
         <LinearLayout
             android:layout_width="match_parent"

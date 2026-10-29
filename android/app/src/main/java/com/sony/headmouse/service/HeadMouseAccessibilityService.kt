@@ -19,15 +19,25 @@ import kotlin.math.hypot
  */
 class HeadMouseAccessibilityService : AccessibilityService(), HeadTrackerManager.MotionListener {
 
+    interface DiagnosticListener {
+        fun onSensorStatus(statusText: String, isConnected: Boolean)
+        fun onMotionData(yawDeg: Float, pitchDeg: Float, rollDeg: Float)
+    }
+
     companion object {
         var isServiceRunning = false
             private set
+        var instance: HeadMouseAccessibilityService? = null
+            private set
+        var diagnosticListener: DiagnosticListener? = null
     }
 
     private lateinit var prefs: PreferenceHelper
     private lateinit var accelaFilter: AccelaFilter
     private lateinit var trackerManager: HeadTrackerManager
     private lateinit var overlayCursor: OverlayCursorManager
+
+    private var isHeadsetConnected = false
 
     // 拖拽与手势状态机
     private var isDragging = false
@@ -57,6 +67,7 @@ class HeadMouseAccessibilityService : AccessibilityService(), HeadTrackerManager
     override fun onServiceConnected() {
         super.onServiceConnected()
         isServiceRunning = true
+        instance = this
 
         prefs = PreferenceHelper(this)
         accelaFilter = AccelaFilter(deadzone = 1.0f, sensitivity = 1.0f, smoothing = 0.7f)
@@ -70,8 +81,29 @@ class HeadMouseAccessibilityService : AccessibilityService(), HeadTrackerManager
     override fun onDestroy() {
         super.onDestroy()
         isServiceRunning = false
+        instance = null
+        diagnosticListener = null
         trackerManager.stop()
         overlayCursor.hide()
+    }
+
+    override fun onSensorStatusChanged(statusText: String, isConnected: Boolean) {
+        isHeadsetConnected = isConnected
+        overlayCursor.setHeadsetStatus(isConnected, statusText)
+        diagnosticListener?.onSensorStatus(statusText, isConnected)
+    }
+
+    fun reDetectHeadset() {
+        trackerManager.stop()
+        trackerManager.start()
+    }
+
+    fun getSensorDescription(): String {
+        return trackerManager.activeSourceDescription
+    }
+
+    fun isHeadsetAttached(): Boolean {
+        return trackerManager.isHeadsetDetected
     }
 
     override fun onAccessibilityEvent(event: android.view.accessibility.AccessibilityEvent?) {}
@@ -199,6 +231,9 @@ class HeadMouseAccessibilityService : AccessibilityService(), HeadTrackerManager
         pitchDeg: Float,
         rollDeg: Float
     ) {
+        diagnosticListener?.onMotionData(yawDeg, pitchDeg, rollDeg)
+        if (!isHeadsetConnected) return
+
         val now = SystemClock.uptimeMillis()
 
         // 1. 自适应零点平滑更新

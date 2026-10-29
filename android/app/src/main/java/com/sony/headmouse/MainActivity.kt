@@ -12,13 +12,17 @@ import com.sony.headmouse.service.HeadMouseAccessibilityService
 import com.sony.headmouse.util.Constants
 import com.sony.headmouse.util.PreferenceHelper
 
-class MainActivity : Activity() {
+class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListener {
 
     private lateinit var prefs: PreferenceHelper
 
     private lateinit var tvStatus: TextView
     private lateinit var btnAccessibility: Button
     private lateinit var btnOverlay: Button
+
+    private lateinit var tvSensorSource: TextView
+    private lateinit var tvSensorAngles: TextView
+    private lateinit var btnRedetectSensor: Button
 
     private lateinit var rgDragMode: RadioGroup
     private lateinit var rbSticky: RadioButton
@@ -51,13 +55,26 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        HeadMouseAccessibilityService.diagnosticListener = this
         updateServiceStatus()
+        updateSensorDiagnostic()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (HeadMouseAccessibilityService.diagnosticListener === this) {
+            HeadMouseAccessibilityService.diagnosticListener = null
+        }
     }
 
     private fun initViews() {
         tvStatus = findViewById(R.id.tv_service_status)
         btnAccessibility = findViewById(R.id.btn_open_accessibility)
         btnOverlay = findViewById(R.id.btn_open_overlay)
+
+        tvSensorSource = findViewById(R.id.tv_sensor_source)
+        tvSensorAngles = findViewById(R.id.tv_sensor_angles)
+        btnRedetectSensor = findViewById(R.id.btn_redetect_sensor)
 
         rgDragMode = findViewById(R.id.rg_drag_mode)
         rbSticky = findViewById(R.id.rb_mode_sticky)
@@ -165,6 +182,17 @@ class MainActivity : Activity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
+        btnRedetectSensor.setOnClickListener {
+            val service = HeadMouseAccessibilityService.instance
+            if (service != null) {
+                Toast.makeText(this, "正在重新探测 Sony LinkBuds 耳机...", Toast.LENGTH_SHORT).show()
+                service.reDetectHeadset()
+                updateSensorDiagnostic()
+            } else {
+                Toast.makeText(this, "请先点击上方开启【无障碍服务】", Toast.LENGTH_LONG).show()
+            }
+        }
+
         btnTest.setOnClickListener {
             testCount++
             btnTest.text = "🎯 成功触发触屏点击！累计点击: $testCount 次"
@@ -183,6 +211,39 @@ class MainActivity : Activity() {
         } else {
             tvStatus.text = getString(R.string.status_service_stopped)
             tvStatus.setTextColor(Color.parseColor("#E74C3C"))
+        }
+    }
+
+    private fun updateSensorDiagnostic() {
+        val service = HeadMouseAccessibilityService.instance
+        if (service != null) {
+            val desc = service.getSensorDescription()
+            val isConnected = service.isHeadsetAttached()
+            onSensorStatus(desc, isConnected)
+        } else {
+            tvSensorSource.text = "⚠️ 无障碍服务未开启 (请点击上方按钮开启服务)"
+            tvSensorSource.setTextColor(Color.parseColor("#E67E22"))
+            tvSensorAngles.text = "头动角度：等待无障碍服务与耳机连接..."
+        }
+    }
+
+    override fun onSensorStatus(statusText: String, isConnected: Boolean) {
+        runOnUiThread {
+            tvSensorSource.text = statusText
+            if (isConnected) {
+                tvSensorSource.setTextColor(Color.parseColor("#27AE60"))
+            } else {
+                tvSensorSource.setTextColor(Color.parseColor("#E74C3C"))
+            }
+        }
+    }
+
+    override fun onMotionData(yawDeg: Float, pitchDeg: Float, rollDeg: Float) {
+        runOnUiThread {
+            tvSensorAngles.text = String.format(
+                "实时姿态：Yaw(偏航): %+.1f°  Pitch(俯仰): %+.1f°  Roll(翻滚): %+.1f°",
+                yawDeg, pitchDeg, rollDeg
+            )
         }
     }
 }
