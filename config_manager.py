@@ -15,9 +15,10 @@ DEFAULT_CONFIG = {
     "invert_y": False,
     "enable_dwell_click": True,
     "dwell_time": 0.9,
-    "enable_nod_click": True,
-    "nod_sensitivity": 6,
-    "enable_nod_lock": True,
+    "enable_tilt_click": True,
+    "tilt_threshold": 10.0,
+    "invert_tilt": False,
+    "enable_wide_area_tap": True,
     "deadzone": 1.2,
     "sensitivity": 0.85,
     "smoothing": 0.75
@@ -37,6 +38,10 @@ class ConfigManager:
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     saved = json.load(f)
                     if isinstance(saved, dict):
+                        # 滤除废弃旧参数
+                        deprecated_keys = {"enable_nod_click", "nod_sensitivity", "enable_nod_lock", "req_drop", "req_rebound"}
+                        for k in deprecated_keys:
+                            saved.pop(k, None)
                         self.data.update(saved)
             except Exception as e:
                 print(f"读取配置文件失败，使用默认配置: {e}")

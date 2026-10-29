@@ -1,15 +1,18 @@
 """
-Sony LinkBuds 头控鼠标驱动 (纯后台系统托盘版 - 稳健修复版)
-- 单实例进程锁：全局互斥量确保永远只有一个驱动实例在运行，杜绝多开冲突
-- 独立连接状态机：彻底修复校准或状态消息导致鼠标断流的问题
-- 管理员权限自动提权保护：确保能向所有窗口正常注入鼠标操作
-- 配置即时持久化：托盘菜单的所有修改自动保存到 config.json，启动时无缝恢复
+Sony LinkBuds 头控鼠标驱动 (纯后台系统托盘版 - 极速免手与无障碍无感版)
+- 专为手部活动不便及残障人士深度打造的全免手鼠标交互方案
+- 彻底摒弃易跑偏的点头手势与多余的中心校准，光标定位极其丝滑稳定
+- 三大无障碍点击模式：
+  1. 悬停点击 (Dwell Click)：光标停留在目标上自动触发左键单击
+  2. 左右歪头手势 (Head Tilt Gesture)：微偏头部即可触发（左歪=左键，右歪=右键，自带动作防晃定格）
+  3. 耳周广域点击 (Wide Area Tap)：轻叩左侧耳周=左键，轻叩右侧耳周=右键 (自动屏蔽音乐切歌)
+- 单实例进程锁：全局互斥量确保永远只有一个驱动实例在运行
+- 匿名内核管道直传：0 网络端口，零防火墙弹窗，零网络协议栈开销
 """
 
 import os
 import sys
 import time
-import math
 import ctypes
 import threading
 import subprocess
@@ -21,11 +24,11 @@ from pystray import MenuItem as item, Menu
 from head_tracker_pipe import HeadTrackerPipe
 from accela_filter import AccelaFilter
 from gesture_engine import GestureEngine
+from wide_area_tap import WideAreaTapListener
 from config_manager import ConfigManager
 from settings_dialog import SettingsDialog
 
-VK_F12 = 0x7B
-VK_F9  = 0x78
+VK_F9 = 0x78
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 REG_APP_NAME = "SonyLinkBudsHeadMouse"
@@ -40,7 +43,6 @@ def ensure_single_instance():
     _mutex_handle = kernel32.CreateMutexW(None, False, mutex_name)
     ERROR_ALREADY_EXISTS = 183
     if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
-        # 已有实例在运行，直接静默退出当前重复进程
         sys.exit(0)
 
 def require_admin():
@@ -90,11 +92,20 @@ class HeadMouseDriverService:
         
         self.gesture.invert_x = self.config.get("invert_x", True)
         self.gesture.invert_y = self.config.get("invert_y", False)
+        
+        # 悬停点击与歪头手势配置
         self.gesture.enable_dwell_click = self.config.get("enable_dwell_click", True)
         self.gesture.set_dwell_time(self.config.get("dwell_time", 0.9))
-        self.gesture.enable_nod_click = self.config.get("enable_nod_click", True)
-        self.gesture.set_nod_sensitivity(self.config.get("nod_sensitivity", 6))
-        self.gesture.enable_nod_lock = self.config.get("enable_nod_lock", True)
+        self.gesture.enable_tilt_click = self.config.get("enable_tilt_click", True)
+        self.gesture.set_tilt_threshold(self.config.get("tilt_threshold", 10.0))
+        self.gesture.invert_tilt = self.config.get("invert_tilt", False)
+
+        # 耳周广域点击 (Wide Area Tap) 监听器
+        self.tap_listener = WideAreaTapListener(
+            on_left_click=self.gesture.click_left,
+            on_right_click=self.gesture.click_right,
+            enabled=self.config.get("enable_wide_area_tap", True)
+        )
 
         self.tracking_enabled = self.config.get("tracking_enabled", True)
         self.is_connected = False
@@ -118,17 +129,16 @@ class HeadMouseDriverService:
                 self.toggle_tracking,
                 checked=lambda it: self.tracking_enabled
             ),
-            item("⌖ 居中校准当前朝向 (F12)", self.calibrate_center),
             item("🔄 重新检测/修复耳机连接", self.rebind_tracker),
             Menu.SEPARATOR,
-            item("🎚️ 调节手势灵敏度与停留时间...", self.open_settings_dialog),
+            item("🎚️ 调节免手操作与手势灵敏度...", self.open_settings_dialog),
             item("免手操作设置", Menu(
                 item("反转水平 X 轴", self.toggle_invert_x, checked=lambda it: self.gesture.invert_x),
                 item("反转垂直 Y 轴", self.toggle_invert_y, checked=lambda it: self.gesture.invert_y),
                 Menu.SEPARATOR,
-                item("开启停顿点击 (Dwell Click)", self.toggle_dwell, checked=lambda it: self.gesture.enable_dwell_click),
-                item("开启点头点击 (Nod Click)", self.toggle_nod, checked=lambda it: self.gesture.enable_nod_click),
-                item("开启点头防跑偏锁定", self.toggle_nod_lock, checked=lambda it: self.gesture.enable_nod_lock),
+                item("开启悬停点击 (Dwell Click)", self.toggle_dwell, checked=lambda it: self.gesture.enable_dwell_click),
+                item("开启左右歪头手势 (左歪=左键，右歪=右键)", self.toggle_tilt, checked=lambda it: self.gesture.enable_tilt_click),
+                item("开启耳周广域点击 (左耳=左键，右耳=右键)", self.toggle_wide_tap, checked=lambda it: self.tap_listener.enabled),
             )),
             Menu.SEPARATOR,
             item("⚙️ Windows 鼠标属性设置...", self.open_windows_mouse_settings),
@@ -149,12 +159,11 @@ class HeadMouseDriverService:
         if self.icon:
             self.icon.icon = create_tray_icon(self.is_connected, self.tracking_enabled)
 
-    def _on_head_motion(self, yaw_rate, pitch_rate, cur_yaw, cur_pitch):
-        # 只要开启了跟踪，且收到数据帧，立即驱动鼠标，绝不被文字状态阻断！
+    def _on_head_motion(self, yaw_rate, pitch_rate, cur_yaw, cur_pitch, cur_roll=0.0):
         if not self.tracking_enabled:
             return
         f_yaw, f_pitch = self.accela.filter(yaw_rate, pitch_rate)
-        self.gesture.process_frame(f_yaw, f_pitch, pitch_rate, cur_pitch)
+        self.gesture.process_frame(f_yaw, f_pitch, yaw_rate, pitch_rate, cur_roll)
 
     def _on_connection_change(self, connected):
         self.is_connected = connected
@@ -173,7 +182,6 @@ class HeadMouseDriverService:
         self.config.set("tracking_enabled", self.tracking_enabled)
         self._update_icon_state()
         if self.tracking_enabled:
-            self.tracker.calibrate()
             if self.icon:
                 try: self.icon.notify("头控鼠标已恢复", "Sony 鼠标驱动")
                 except Exception: pass
@@ -181,12 +189,6 @@ class HeadMouseDriverService:
             if self.icon:
                 try: self.icon.notify("头控鼠标已暂停 (交由手部鼠标控制)", "Sony 鼠标驱动")
                 except Exception: pass
-
-    def calibrate_center(self, icon=None, it=None):
-        self.tracker.calibrate()
-        if self.icon:
-            try: self.icon.notify("中心基准点已重置 (当前朝向为屏幕中央)", "Sony 鼠标驱动")
-            except Exception: pass
 
     def rebind_tracker(self, icon=None, it=None):
         if self.tracker:
@@ -200,6 +202,7 @@ class HeadMouseDriverService:
             dialog = SettingsDialog(
                 self.config,
                 self.gesture,
+                self.tap_listener,
                 on_update_callback=None
             )
             dialog.show()
@@ -217,13 +220,14 @@ class HeadMouseDriverService:
         self.gesture.enable_dwell_click = not self.gesture.enable_dwell_click
         self.config.set("enable_dwell_click", self.gesture.enable_dwell_click)
 
-    def toggle_nod(self, icon=None, it=None):
-        self.gesture.enable_nod_click = not self.gesture.enable_nod_click
-        self.config.set("enable_nod_click", self.gesture.enable_nod_click)
+    def toggle_tilt(self, icon=None, it=None):
+        self.gesture.enable_tilt_click = not self.gesture.enable_tilt_click
+        self.config.set("enable_tilt_click", self.gesture.enable_tilt_click)
 
-    def toggle_nod_lock(self, icon=None, it=None):
-        self.gesture.enable_nod_lock = not self.gesture.enable_nod_lock
-        self.config.set("enable_nod_lock", self.gesture.enable_nod_lock)
+    def toggle_wide_tap(self, icon=None, it=None):
+        new_state = not self.tap_listener.enabled
+        self.tap_listener.set_enabled(new_state)
+        self.config.set("enable_wide_area_tap", new_state)
 
     def open_windows_mouse_settings(self, icon=None, it=None):
         try:
@@ -261,19 +265,12 @@ class HeadMouseDriverService:
         user32 = ctypes.windll.user32
         
         def listener():
-            last_f12 = False
             last_f9 = False
             while True:
-                f12_state = (user32.GetAsyncKeyState(VK_F12) & 0x8000) != 0
-                if f12_state and not last_f12:
-                    self.calibrate_center()
-                last_f12 = f12_state
-
                 f9_state = (user32.GetAsyncKeyState(VK_F9) & 0x8000) != 0
                 if f9_state and not last_f9:
                     self.toggle_tracking()
                 last_f9 = f9_state
-
                 time.sleep(0.05)
 
         t = threading.Thread(target=listener, daemon=True)
@@ -281,10 +278,12 @@ class HeadMouseDriverService:
 
     def run(self):
         self._start_hotkey_listener()
+        self.tap_listener.start()
         self.tracker.start()
         self.icon.run()
 
     def quit_service(self, icon=None, it=None):
+        self.tap_listener.stop()
         self.tracker.stop()
         if self.icon:
             self.icon.stop()

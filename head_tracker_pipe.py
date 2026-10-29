@@ -262,8 +262,7 @@ class HeadTrackerPipe:
             if self.on_motion:
                 self.on_motion(
                     yaw_rate, pitch_rate,
-                    yaw_deg - self.bias_yaw,
-                    pitch_deg - self.bias_pitch
+                    yaw_deg, pitch_deg, roll_deg
                 )
 
         self.last_yaw = yaw_deg
