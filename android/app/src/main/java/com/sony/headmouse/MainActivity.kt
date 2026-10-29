@@ -1,18 +1,29 @@
 package com.sony.headmouse
 
+import android.Manifest
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.*
+import androidx.core.content.ContextCompat
 import com.sony.headmouse.service.HeadMouseAccessibilityService
+import com.sony.headmouse.service.HeadTrackerManager
 import com.sony.headmouse.util.Constants
 import com.sony.headmouse.util.PreferenceHelper
 
 class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListener {
+
+    companion object {
+        private const val REQUEST_BT_PERMS = 101
+    }
 
     private lateinit var prefs: PreferenceHelper
 
@@ -23,6 +34,11 @@ class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListene
     private lateinit var tvSensorSource: TextView
     private lateinit var tvSensorAngles: TextView
     private lateinit var btnRedetectSensor: Button
+    private lateinit var cbPhoneFallback: CheckBox
+
+    private lateinit var tvDiagnosticLog: TextView
+    private lateinit var btnCopyLog: Button
+    private lateinit var btnGrantBluetooth: Button
 
     private lateinit var rgDragMode: RadioGroup
     private lateinit var rbSticky: RadioButton
@@ -51,6 +67,8 @@ class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListene
         initViews()
         loadPreferences()
         setupListeners()
+
+        checkAndRequestBluetoothPermissions()
     }
 
     override fun onResume() {
@@ -58,6 +76,7 @@ class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListene
         HeadMouseAccessibilityService.diagnosticListener = this
         updateServiceStatus()
         updateSensorDiagnostic()
+        refreshDiagnosticLogView()
     }
 
     override fun onPause() {
@@ -75,6 +94,11 @@ class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListene
         tvSensorSource = findViewById(R.id.tv_sensor_source)
         tvSensorAngles = findViewById(R.id.tv_sensor_angles)
         btnRedetectSensor = findViewById(R.id.btn_redetect_sensor)
+        cbPhoneFallback = findViewById(R.id.cb_phone_fallback)
+
+        tvDiagnosticLog = findViewById(R.id.tv_diagnostic_log)
+        btnCopyLog = findViewById(R.id.btn_copy_log)
+        btnGrantBluetooth = findViewById(R.id.btn_grant_bluetooth)
 
         rgDragMode = findViewById(R.id.rg_drag_mode)
         rbSticky = findViewById(R.id.rb_mode_sticky)
@@ -96,6 +120,9 @@ class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListene
     }
 
     private fun loadPreferences() {
+        // 手机固定支架备用开关
+        cbPhoneFallback.isChecked = prefs.allowPhoneMountFallback
+
         // 拖动方案
         when (prefs.dragMode) {
             Constants.DRAG_MODE_STICKY -> rbSticky.isChecked = true
@@ -142,6 +169,45 @@ class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListene
             }
         }
 
+        btnGrantBluetooth.setOnClickListener {
+            checkAndRequestBluetoothPermissions(forceRequest = true)
+        }
+
+        cbPhoneFallback.setOnCheckedChangeListener { _, isChecked ->
+            prefs.allowPhoneMountFallback = isChecked
+            if (isChecked) {
+                Toast.makeText(
+                    this,
+                    "⚠️ 备用模式已开启：仅在手机固定于头部/轮椅支架随头动时使用！",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                Toast.makeText(this, "已关闭手机支架备用模式，恢复 100% 耳机外设模式", Toast.LENGTH_SHORT).show()
+            }
+            HeadMouseAccessibilityService.instance?.reDetectHeadset()
+            updateSensorDiagnostic()
+        }
+
+        btnRedetectSensor.setOnClickListener {
+            val service = HeadMouseAccessibilityService.instance
+            if (service != null) {
+                Toast.makeText(this, "正在重新执行 5 重外设探测...", Toast.LENGTH_SHORT).show()
+                service.reDetectHeadset()
+                updateSensorDiagnostic()
+                refreshDiagnosticLogView()
+            } else {
+                Toast.makeText(this, "请先点击上方开启【无障碍服务】", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        btnCopyLog.setOnClickListener {
+            val report = HeadTrackerManager.getFullDiagnosticReport()
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("HeadMouseDiagnostic", report)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(this, "📋 诊断报告已复制到剪贴板，可直接发送进行分析！", Toast.LENGTH_LONG).show()
+        }
+
         rgDragMode.setOnCheckedChangeListener { _, checkedId ->
             val mode = when (checkedId) {
                 R.id.rb_mode_sticky -> Constants.DRAG_MODE_STICKY
@@ -182,17 +248,6 @@ class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListene
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        btnRedetectSensor.setOnClickListener {
-            val service = HeadMouseAccessibilityService.instance
-            if (service != null) {
-                Toast.makeText(this, "正在重新探测 Sony LinkBuds 耳机...", Toast.LENGTH_SHORT).show()
-                service.reDetectHeadset()
-                updateSensorDiagnostic()
-            } else {
-                Toast.makeText(this, "请先点击上方开启【无障碍服务】", Toast.LENGTH_LONG).show()
-            }
-        }
-
         btnTest.setOnClickListener {
             testCount++
             btnTest.text = "🎯 成功触发触屏点击！累计点击: $testCount 次"
@@ -200,6 +255,52 @@ class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListene
             btnTest.postDelayed({
                 btnTest.setBackgroundColor(Color.parseColor("#EAECEF"))
             }, 300)
+        }
+    }
+
+    private fun checkAndRequestBluetoothPermissions(forceRequest: Boolean = false) {
+        val permissions = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+        }
+
+        if (permissions.isNotEmpty()) {
+            if (forceRequest) {
+                requestPermissions(permissions.toTypedArray(), REQUEST_BT_PERMS)
+            } else {
+                requestPermissions(permissions.toTypedArray(), REQUEST_BT_PERMS)
+            }
+        } else {
+            if (forceRequest) {
+                Toast.makeText(this, "✅ 蓝牙与外设权限已全部就绪！", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_BT_PERMS) {
+            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            if (allGranted) {
+                Toast.makeText(this, "✅ 蓝牙权限授权成功，正在重新扫描外设...", Toast.LENGTH_SHORT).show()
+                HeadMouseAccessibilityService.instance?.reDetectHeadset()
+                updateSensorDiagnostic()
+            } else {
+                Toast.makeText(this, "⚠️ 蓝牙权限未完全授权，可能影响耳机外设识别", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -227,6 +328,11 @@ class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListene
         }
     }
 
+    private fun refreshDiagnosticLogView() {
+        val report = HeadTrackerManager.getFullDiagnosticReport()
+        tvDiagnosticLog.text = if (report.isNotEmpty()) report else "等待探测触发..."
+    }
+
     override fun onSensorStatus(statusText: String, isConnected: Boolean) {
         runOnUiThread {
             tvSensorSource.text = statusText
@@ -244,6 +350,12 @@ class MainActivity : Activity(), HeadMouseAccessibilityService.DiagnosticListene
                 "实时姿态：Yaw(偏航): %+.1f°  Pitch(俯仰): %+.1f°  Roll(翻滚): %+.1f°",
                 yawDeg, pitchDeg, rollDeg
             )
+        }
+    }
+
+    override fun onDiagnosticLog(logText: String) {
+        runOnUiThread {
+            refreshDiagnosticLogView()
         }
     }
 }

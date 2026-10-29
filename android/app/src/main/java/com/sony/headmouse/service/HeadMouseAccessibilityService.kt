@@ -22,6 +22,7 @@ class HeadMouseAccessibilityService : AccessibilityService(), HeadTrackerManager
     interface DiagnosticListener {
         fun onSensorStatus(statusText: String, isConnected: Boolean)
         fun onMotionData(yawDeg: Float, pitchDeg: Float, rollDeg: Float)
+        fun onDiagnosticLog(logText: String)
     }
 
     companion object {
@@ -91,6 +92,10 @@ class HeadMouseAccessibilityService : AccessibilityService(), HeadTrackerManager
         isHeadsetConnected = isConnected
         overlayCursor.setHeadsetStatus(isConnected, statusText)
         diagnosticListener?.onSensorStatus(statusText, isConnected)
+    }
+
+    override fun onDiagnosticLog(logText: String) {
+        diagnosticListener?.onDiagnosticLog(logText)
     }
 
     fun reDetectHeadset() {

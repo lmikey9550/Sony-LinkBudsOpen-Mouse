@@ -30,4 +30,8 @@ class PreferenceHelper(context: Context) {
     var invertY: Boolean
         get() = prefs.getBoolean(Constants.KEY_INVERT_Y, false)
         set(value) = prefs.edit().putBoolean(Constants.KEY_INVERT_Y, value).apply()
+
+    var allowPhoneMountFallback: Boolean
+        get() = prefs.getBoolean("allow_phone_mount_fallback", false)
+        set(value) = prefs.edit().putBoolean("allow_phone_mount_fallback", value).apply()
 }

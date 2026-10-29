@@ -137,6 +137,72 @@
                 android:backgroundTint="#0066CC"
                 android:textColor="#FFFFFF" />
 
+            <!-- 手机固定支架备用开关 (手持手机严禁开启) -->
+            <CheckBox
+                android:id="@+id/cb_phone_fallback"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="📱 备用模式：允许手机支架陀螺仪（仅当手机固定于头部/轮椅随头动时使用）"
+                android:textColor="#7F8C8D"
+                android:textSize="12sp" />
+
+            <!-- 诊断日志控制台 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="📋 底层硬件与外设诊断日志"
+                android:textStyle="bold"
+                android:textColor="#34495E"
+                android:textSize="13sp" />
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="140dp"
+                android:layout_marginTop="4dp"
+                android:background="#1E2227"
+                android:padding="8dp">
+
+                <TextView
+                    android:id="@+id/tv_diagnostic_log"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#61AFEF"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:text="正在初始化诊断引擎..." />
+            </ScrollView>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp">
+
+                <Button
+                    android:id="@+id/btn_copy_log"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="📋 复制诊断报告"
+                    android:textSize="12sp"
+                    android:backgroundTint="#4B5263"
+                    android:textColor="#FFFFFF"
+                    android:layout_marginEnd="4dp" />
+
+                <Button
+                    android:id="@+id/btn_grant_bluetooth"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="🔑 授予蓝牙权限"
+                    android:textSize="12sp"
+                    android:backgroundTint="#2ECC71"
+                    android:textColor="#FFFFFF"
+                    android:layout_marginStart="4dp" />
+            </LinearLayout>
+
         </LinearLayout>
 
         <!-- 触屏拖动/滑动策略配置卡片 -->
