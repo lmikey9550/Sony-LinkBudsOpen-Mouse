@@ -129,7 +129,7 @@ class HeadMouseDriverService:
                 self.toggle_tracking,
                 checked=lambda it: self.tracking_enabled
             ),
-            item("🔄 重新检测/修复耳机连接", self.rebind_tracker),
+            item("🔄 唤醒/修复耳机头控节点 (Repair Tracker)", self.rebind_tracker),
             Menu.SEPARATOR,
             item("🎚️ 调节免手操作与手势灵敏度...", self.open_settings_dialog),
             item("免手操作设置", Menu(

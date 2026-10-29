@@ -1,17 +1,19 @@
 """
-Sony LinkBuds / XM 系列耳机高精度头控驱动模块 (UDP 4242 + 进程守护)
+Sony LinkBuds / XM 系列耳机高精度头控驱动模块 (自动唤醒修复 + UDP/管道双冗余)
 - 兼容 Sony LinkBuds Open, LinkBuds S, WF-1000XM5, WH-1000XM5 等全部支持 Android Head Tracker 的索尼设备
-- 底层调度 sony-head-tracker.exe bridge --port 4242 采集 25Hz 高频六轴姿态数据
-- 通过本地环回 UDP 4242 端口高效接收 48 字节 IEEE-754 姿态数据包 (x, y, z, yaw, pitch, roll)
-- 内置 A2DP 静音保活引擎，防止索尼耳机 2.5 秒休眠
-- 实时监控底层驱动输出并动态更新连接状态，支持故障自愈与平滑重连
+- 内置自动 Repair 修复引擎：开机/冷启动自动执行 Repair 唤醒 Bluetooth HID 子设备并绑定通用驱动，彻底无需手动打开 sony-head-tracker 界面点 Repair
+- 通过本地环回 UDP 4242 端口高效接收 48 字节 IEEE-754 姿态数据包，辅以 stdout 管道流双重容错保底
+- 内置 A2DP 静音保活引擎，彻底解决索尼固件 2.5 秒无音频休眠的难题
+- 支持托盘一键无缝“唤醒/修复耳机头控节点 (Repair Tracker)”
 """
 
 import os
+import re
 import sys
 import time
 import socket
 import struct
+import ctypes
 import threading
 import subprocess
 
@@ -19,6 +21,11 @@ from silent_keepalive import SilentAudioKeepalive
 
 UDP_IP = "127.0.0.1"
 UDP_PORT = 4242
+
+# 格式示例：YPR    1.08   -2.94   -1.07   23.2 pps
+YPR_PATTERN = re.compile(
+    r'YPR\s+([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)'
+)
 
 class HeadTrackerPipe:
     def __init__(self, on_motion_callback=None, on_status_callback=None, on_connection_callback=None):
@@ -53,6 +60,7 @@ class HeadTrackerPipe:
 
         self.is_connected = False
         self.last_sample_time = 0.0
+        self.last_repair_time = 0.0
 
         # 定位底层的独立驱动引擎 (兼顾源码运行与 PyInstaller 打包环境)
         self.exe_path = self._find_tracker_exe()
@@ -87,33 +95,75 @@ class HeadTrackerPipe:
         if self.on_status:
             self.on_status("已校准：当前朝向已设为中心基准点")
 
-    def rebind(self):
-        """调用底层蓝牙服务重新探测与修复功能 (针对系统冷启动或蓝牙断连恢复)"""
-        def _do_rebind():
-            if self.on_status:
-                self.on_status("正在扫描并重新探测 Sony 蓝牙 HID 节点...")
+    def _repair_tracker(self, interactive=False):
+        """执行底层驱动的一键修复/节点唤醒 (完全等效于 sony-head-tracker 界面的 Repair Tracker 按钮)"""
+        now = time.time()
+        # 限制修复调用频率，避免 10 秒内重复触发
+        if now - self.last_repair_time < 10.0 and not interactive:
+            return
+        self.last_repair_time = now
+
+        if self.on_status:
+            self.on_status("正在激活/修复 Sony 耳机头控 HID 节点 (Repair)...")
+
+        try:
+            self._kill_subprocess()
+
+            is_admin = False
             try:
-                self._kill_subprocess()
-                # 自动重新扫描绑定，不带硬编码过滤，兼容所有型号
+                is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+            except Exception:
+                pass
+
+            if is_admin:
+                # 已具备管理员权限，直接以 --elevated --no-launch 静默无黑框极速修复
                 subprocess.run(
-                    [self.exe_path, "bluetooth-rebind"],
+                    [self.exe_path, "repair", "--elevated", "--no-launch"],
                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
                     timeout=15,
                     capture_output=True
                 )
-            except Exception:
-                pass
+            else:
+                # 非管理员权限时通过 Windows ShellExecuteW runas 唤起 UAC 授权弹窗
+                ctypes.windll.shell32.ShellExecuteW(
+                    None,
+                    "runas",
+                    self.exe_path,
+                    "repair --elevated --no-launch",
+                    None,
+                    1 if interactive else 0
+                )
+                time.sleep(5.0)
+        except Exception as e:
+            print("执行 Repair 异常:", e)
 
-            # 刷新静音音频通道唤醒蓝牙 A2DP 链路
-            self.keepalive.refresh()
+        # 刷新静音音频通道唤醒蓝牙 A2DP 链路
+        self.keepalive.refresh()
 
-            if self.on_status:
-                self.on_status("蓝牙节点已刷新，正在重新连接...")
+        if self.on_status:
+            self.on_status("HID 节点已刷新，正在直连...")
 
-            # 重启子进程以快速接管
+    def rebind(self):
+        """托盘菜单手动点击“唤醒/修复耳机头控节点”"""
+        def _do_manual_rebind():
+            self._repair_tracker(interactive=True)
             self._start_subprocess()
 
-        threading.Thread(target=_do_rebind, daemon=True).start()
+        threading.Thread(target=_do_manual_rebind, daemon=True).start()
+
+    def _is_tracker_accessible(self):
+        """快速探测当前 Windows 是否已正确暴露 Android Head Tracker HID 设备"""
+        try:
+            res = subprocess.run(
+                [self.exe_path, "probe"],
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
+                capture_output=True,
+                text=True,
+                timeout=4
+            )
+            return res.returncode == 0
+        except Exception:
+            return False
 
     def start(self):
         if self.running:
@@ -129,12 +179,25 @@ class HeadTrackerPipe:
         # 启动 UDP 接收监听
         self._start_udp_receiver()
 
-        # 启动驱动桥接子进程
-        self._start_subprocess()
+        # 启动初始化线程：探测设备状态并在必要时自动执行 repair
+        init_thread = threading.Thread(target=self._startup_sequence, daemon=True)
+        init_thread.start()
 
         # 启动看门狗守护线程
         self.watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True)
         self.watchdog_thread.start()
+
+    def _startup_sequence(self):
+        """自愈启动序列：检查节点可达性，若未就绪则自动执行静默修复后直连"""
+        if self.on_status:
+            self.on_status("正在检测 Sony 耳机头控状态...")
+
+        if not self._is_tracker_accessible():
+            # 首次启动或冷启动时设备未唤醒，自动触发一次修复
+            self._repair_tracker(interactive=False)
+
+        # 启动驱动桥接子进程
+        self._start_subprocess()
 
     def stop(self):
         self.running = False
@@ -228,7 +291,7 @@ class HeadTrackerPipe:
             self.process = None
 
     def _stdout_reader_loop(self):
-        """读取子进程输出，实时识别耳机状态与设备型号"""
+        """读取子进程输出，实时识别耳机状态、设备型号并支持 stdout 数据流冗余解析"""
         proc = self.process
         if not proc or not proc.stdout:
             return
@@ -243,9 +306,13 @@ class HeadTrackerPipe:
             pass
 
     def _handle_status_line(self, line):
+        # 1. 识别已成功连接的设备名称
         if "Tracking " in line:
-            # 示例: Tracking LinkBuds Open (80:99:E7:85:66:84)...
+            # 格式 1: Tracking headset: LinkBuds Open
+            # 格式 2: Tracking LinkBuds Open (80:99:E7:85:66:84)...
             model = line.split("Tracking ")[-1].strip()
+            if "headset:" in model:
+                model = model.split("headset:")[-1].strip()
             if "(" in model:
                 model = model.split("(")[0].strip()
             self.device_name = model if model else "Sony 耳机"
@@ -254,17 +321,31 @@ class HeadTrackerPipe:
                 self.on_connection(True)
             if self.on_status:
                 self.on_status(f"✅ 已直连 {self.device_name}")
+            return
 
-        elif "No Android Head Tracker" in line:
+        # 2. 识别未找到设备
+        if "No Android Head Tracker" in line:
             if self.is_connected:
                 self.is_connected = False
                 if self.on_connection:
                     self.on_connection(False)
             if self.on_status:
                 self.on_status("等待连接 Sony 耳机 (请戴上耳机/开启蓝牙)...")
+            return
+
+        # 3. 冗余处理标准输出的 YPR 姿态数据 (若 UDP 未收到采样时作为无缝保底)
+        m = YPR_PATTERN.search(line)
+        if m:
+            now = time.time()
+            if now - self.last_sample_time > 0.035:
+                yaw = float(m.group(1))
+                pitch = float(m.group(2))
+                roll = float(m.group(3))
+                self._handle_motion_sample(yaw, pitch, roll)
 
     def _watchdog_loop(self):
-        """监测连接活性与子进程存活状态，断开时自动尝试重连"""
+        """监测连接活性与子进程存活状态，断开时自动尝试重连与唤醒"""
+        consecutive_failures = 0
         while self.running:
             time.sleep(3.0)
             if not self.running:
@@ -273,19 +354,27 @@ class HeadTrackerPipe:
 
             # 1. 检查子进程是否已退出 (未连接耳机时 bridge 进程退出为正常现象)
             if self.process and self.process.poll() is not None:
+                consecutive_failures += 1
                 if self.is_connected:
                     self.is_connected = False
                     if self.on_connection:
                         self.on_connection(False)
                     if self.on_status:
                         self.on_status("等待连接 Sony 耳机 (请戴上耳机/开启蓝牙)...")
-                # 稍作等待后重启子进程尝试重新探测
+
+                # 如果连续多次启动失败（可能系统驱动节点丢失），自动触发一次自愈修复
+                if consecutive_failures >= 3:
+                    consecutive_failures = 0
+                    self._repair_tracker(interactive=False)
+
                 time.sleep(2.0)
                 if self.running:
                     self._start_subprocess()
                 continue
+            else:
+                consecutive_failures = 0
 
-            # 2. 如果子进程仍在运行但超过 3.5 秒未收到 UDP 数据包
+            # 2. 如果子进程仍在运行但超过 3.5 秒未收到姿态数据包
             if self.is_connected and (now - self.last_sample_time > 3.5):
                 self.is_connected = False
                 if self.on_connection:
